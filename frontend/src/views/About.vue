@@ -46,10 +46,10 @@
         <div class="card">
           <h2 class="section-title">🔗 Links</h2>
           <div class="links">
-            <a href="https://github.com/azrul" target="_blank" class="link-btn">
+            <a href="https://github.com/rabbanifitri6991" target="_blank" class="link-btn">
               ⬡ GitHub
             </a>
-            <a href="https://linkedin.com/in/azrul" target="_blank" class="link-btn">
+            <a href="https://linkedin.com/in/azrulrabbani/" target="_blank" class="link-btn">
               ∷ LinkedIn
             </a>
           </div>

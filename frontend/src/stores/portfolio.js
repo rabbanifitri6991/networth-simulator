@@ -1,22 +1,59 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { buildProjection, totalContributed } from '@/utils/compound'
-import axios from 'axios'
 
 const JPY_MYR = 0.02482
 
+const DEFAULTS = {
+  assets: {
+    bank:   0,
+    epf:    0,
+    stocks: 0,
+    japan:  0,
+    asb:    0,
+    btc:    0,
+    sol:    0,
+  },
+  settings: {
+    scenario:      'base',
+    years:         10,
+    monthlyEtf:    1500,
+    monthlyBtc:    500,
+    deployJapan:   true,
+    includeCrypto: true,
+  }
+}
+
+const STORAGE_KEY = 'networth_portfolio'
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function saveToStorage(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    return true
+  } catch {
+    return false
+  }
+}
+
 export const usePortfolioStore = defineStore('portfolio', () => {
 
-  // ── State ─────────────────────────────────────────────────────────────
-  const assets = ref({
-    bank:   14000,
-    epf:    14000,
-    stocks: 10000,
-    japan:  Math.round(1_600_000 * JPY_MYR),  // ~39,712
-    asb:    0,
-    btc:    750,
-    sol:    500,
-  })
+  // ── Load saved data or use defaults ───────────────────────────────────
+  const saved = loadFromStorage()
+
+  const assets = ref(saved?.assets
+    ? { ...DEFAULTS.assets, ...saved.assets }
+    : { ...DEFAULTS.assets }
+  )
 
   const returns = ref({
     bull: { etf: 0.14, epf: 0.065, asb: 0.0575, btc: 0.80, sol: 0.90, solStake: 0.034, label: 'Bull 🚀' },
@@ -24,15 +61,36 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     bear: { etf: -0.05, epf: 0.055, asb: 0.050, btc: -0.40, sol: -0.50, solStake: 0.034, label: 'Bear 🐻' },
   })
 
-  const scenario     = ref('base')
-  const years        = ref(10)
-  const monthlyEtf   = ref(1500)
-  const monthlyBtc   = ref(500)
-  const deployJapan  = ref(true)
-  const includeCrypto = ref(true)
+  const scenario      = ref(saved?.settings?.scenario      ?? DEFAULTS.settings.scenario)
+  const years         = ref(saved?.settings?.years         ?? DEFAULTS.settings.years)
+  const monthlyEtf    = ref(saved?.settings?.monthlyEtf    ?? DEFAULTS.settings.monthlyEtf)
+  const monthlyBtc    = ref(saved?.settings?.monthlyBtc    ?? DEFAULTS.settings.monthlyBtc)
+  const deployJapan   = ref(saved?.settings?.deployJapan   ?? DEFAULTS.settings.deployJapan)
+  const includeCrypto = ref(saved?.settings?.includeCrypto ?? DEFAULTS.settings.includeCrypto)
 
   const isLoading = ref(false)
-  const lastSaved = ref(null)
+  const lastSaved = ref(saved ? new Date().toISOString() : null)
+
+  // ── Auto-save to localStorage whenever anything changes ───────────────
+  watch(
+    [assets, scenario, years, monthlyEtf, monthlyBtc, deployJapan, includeCrypto],
+    () => {
+      saveToStorage({
+        assets: assets.value,
+        settings: {
+          scenario:      scenario.value,
+          years:         years.value,
+          monthlyEtf:    monthlyEtf.value,
+          monthlyBtc:    monthlyBtc.value,
+          deployJapan:   deployJapan.value,
+          includeCrypto: includeCrypto.value,
+        },
+        savedAt: new Date().toISOString()
+      })
+      lastSaved.value = new Date().toISOString()
+    },
+    { deep: true }
+  )
 
   // ── Computed ──────────────────────────────────────────────────────────
   const totalNetWorth = computed(() =>
@@ -50,32 +108,26 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     returns:       returns.value,
   }))
 
-  const projection = computed(() => buildProjection(projectionConfig.value))
-
+  const projection  = computed(() => buildProjection(projectionConfig.value))
   const contributed = computed(() => totalContributed(projectionConfig.value))
+  const lastPoint   = computed(() => projection.value[projection.value.length - 1])
 
-  const lastPoint = computed(() => projection.value[projection.value.length - 1])
-
-  const gainAmount = computed(() => lastPoint.value
-    ? lastPoint.value.Total - contributed.value
-    : 0
+  const gainAmount = computed(() =>
+    lastPoint.value ? lastPoint.value.Total - contributed.value : 0
   )
-
   const gainPct = computed(() =>
     contributed.value > 0
       ? ((gainAmount.value / contributed.value) * 100).toFixed(1)
       : 0
   )
-
   const hit500k = computed(() =>
     projection.value.find(d => d.Total >= 500_000)
   )
-
   const scenarioColor = computed(() => ({
     bull: '#34d399', base: '#60a5fa', bear: '#f87171'
   }[scenario.value]))
 
-  // ── Chart data (Chart.js format) ──────────────────────────────────────
+  // ── Chart data ────────────────────────────────────────────────────────
   const chartData = computed(() => {
     const labels = projection.value.map(d => `Y${d.year}`)
     const makeDataset = (key, label, color) => ({
@@ -88,11 +140,10 @@ export const usePortfolioStore = defineStore('portfolio', () => {
       pointRadius: 0,
       borderWidth: 2,
     })
-
     const datasets = [
-      makeDataset('Cash', 'Cash/FD', '#94a3b8'),
-      makeDataset('EPF',  'EPF',     '#60a5fa'),
-      makeDataset('ASB',  'ASB',     '#34d399'),
+      makeDataset('Cash', 'Cash/FD',    '#94a3b8'),
+      makeDataset('EPF',  'EPF',        '#60a5fa'),
+      makeDataset('ASB',  'ASB',        '#34d399'),
       makeDataset('ETF',  'ETF/Stocks', '#a78bfa'),
     ]
     if (includeCrypto.value) {
@@ -114,74 +165,82 @@ export const usePortfolioStore = defineStore('portfolio', () => {
         { label: 'Solana',  value: lastPoint.value.SOL, color: '#8b5cf6' },
       ] : [])
     ].filter(d => d.value > 0)
-
     return {
       labels: items.map(d => d.label),
-      datasets: [{ data: items.map(d => d.value), backgroundColor: items.map(d => d.color), borderWidth: 0 }]
+      datasets: [{
+        data: items.map(d => d.value),
+        backgroundColor: items.map(d => d.color),
+        borderWidth: 0
+      }]
     }
   })
 
   // ── Actions ───────────────────────────────────────────────────────────
 
-  /** Save portfolio to backend */
+  /** Save to backend API (optional — works only when backend is running) */
   async function savePortfolio() {
     isLoading.value = true
     try {
+      const { default: axios } = await import('axios')
       const payload = {
         assets: assets.value,
         settings: {
-          scenario: scenario.value,
-          years: years.value,
-          monthlyEtf: monthlyEtf.value,
-          monthlyBtc: monthlyBtc.value,
-          deployJapan: deployJapan.value,
-          includeCrypto: includeCrypto.value,
+          scenario: scenario.value, years: years.value,
+          monthlyEtf: monthlyEtf.value, monthlyBtc: monthlyBtc.value,
+          deployJapan: deployJapan.value, includeCrypto: includeCrypto.value,
         }
       }
       const { data } = await axios.post('/api/portfolio', payload)
       lastSaved.value = data.savedAt
       return { success: true }
-    } catch (err) {
-      console.error('Save failed:', err)
-      return { success: false, error: err.message }
+    } catch {
+      // API not available — localStorage already saved via watcher
+      return { success: true, local: true }
     } finally {
       isLoading.value = false
     }
   }
 
-  /** Load portfolio from backend */
+  /** Load from backend API (optional) */
   async function loadPortfolio() {
-    isLoading.value = true
     try {
+      const { default: axios } = await import('axios')
       const { data } = await axios.get('/api/portfolio')
-      if (data.assets)   assets.value   = { ...assets.value,   ...data.assets }
+      if (data.assets)   assets.value = { ...DEFAULTS.assets, ...data.assets }
       if (data.settings) {
         const s = data.settings
-        if (s.scenario)      scenario.value      = s.scenario
-        if (s.years)         years.value         = s.years
-        if (s.monthlyEtf)    monthlyEtf.value    = s.monthlyEtf
-        if (s.monthlyBtc)    monthlyBtc.value    = s.monthlyBtc
-        if (s.deployJapan  != null) deployJapan.value   = s.deployJapan
+        if (s.scenario      != null) scenario.value      = s.scenario
+        if (s.years         != null) years.value         = s.years
+        if (s.monthlyEtf    != null) monthlyEtf.value    = s.monthlyEtf
+        if (s.monthlyBtc    != null) monthlyBtc.value    = s.monthlyBtc
+        if (s.deployJapan   != null) deployJapan.value   = s.deployJapan
         if (s.includeCrypto != null) includeCrypto.value = s.includeCrypto
       }
-      lastSaved.value = data.savedAt
-    } catch (err) {
-      console.warn('No saved portfolio or API not available')
-    } finally {
-      isLoading.value = false
+    } catch {
+      // API offline — already loaded from localStorage on init, nothing to do
     }
+  }
+
+  /** Reset everything to defaults */
+  function resetPortfolio() {
+    assets.value      = { ...DEFAULTS.assets }
+    scenario.value    = DEFAULTS.settings.scenario
+    years.value       = DEFAULTS.settings.years
+    monthlyEtf.value  = DEFAULTS.settings.monthlyEtf
+    monthlyBtc.value  = DEFAULTS.settings.monthlyBtc
+    deployJapan.value = DEFAULTS.settings.deployJapan
+    includeCrypto.value = DEFAULTS.settings.includeCrypto
+    localStorage.removeItem(STORAGE_KEY)
+    lastSaved.value   = null
   }
 
   return {
-    // state
     assets, returns, scenario, years,
     monthlyEtf, monthlyBtc, deployJapan, includeCrypto,
     isLoading, lastSaved,
-    // computed
     totalNetWorth, projection, contributed,
     lastPoint, gainAmount, gainPct, hit500k,
     scenarioColor, chartData, breakdownData,
-    // actions
-    savePortfolio, loadPortfolio,
+    savePortfolio, loadPortfolio, resetPortfolio,
   }
 })

@@ -10,21 +10,21 @@ if (!fs.existsSync(path.dirname(DATA_FILE))) {
 
 const DEFAULT_PORTFOLIO = {
   assets: {
-    bank:   14000,
-    epf:    14000,
-    stocks: 10000,
-    japan:  39712,   // ¥1,600,000 @ 0.02482
+    bank:   0,
+    epf:    0,
+    stocks: 0,
+    japan:  0,   // ¥1,600,000 @ 0.02482
     asb:    0,
-    btc:    750,
-    sol:    500,
+    btc:    0,
+    sol:    0,
   },
   settings: {
     scenario:      'base',
     years:         10,
-    monthlyEtf:    1500,
-    monthlyBtc:    500,
-    deployJapan:   true,
-    includeCrypto: true,
+    monthlyEtf:    0,
+    monthlyBtc:    0,
+    deployJapan:   False,
+    includeCrypto: False,
   },
   savedAt: null
 }
